@@ -9,8 +9,8 @@ load_dotenv()
 MODEL = "claude-haiku-5-5"
 MAX_STEP = 10
 client = anthropic.Anthropic()
-SYSTEM_QUESTION ="Conduct multiple rounds of literature searches from different perspectives using varied keywords and search strategies. For each paper, provide its title, authors, publication year, link, and a brief explanation of its relevance to the research topic."
-SYSTEM_MESSAGE = {"role": "system", "content": SYSTEM_QUESTION}
+SYSTEM_QUESTION ="Conduct multiple rounds of literature searches from different perspectives using varied keywords and search strategies. For each paper, provide its title, authors, publication year, link, and a brief explanation of its relevance to the research topic. After searching, using write_file to store the result under output folder and end the program"
+
 
 
 def call_model(messages: list[dict]):
@@ -20,7 +20,7 @@ def call_model(messages: list[dict]):
         output_config = {"effort": "high"},
         tools = TOOLS,
         messages = messages,
-        system = SYSTEM_MESSAGE
+        system = SYSTEM_QUESTION
     )
 
 
