@@ -9,14 +9,14 @@ load_dotenv()
 MODEL = "claude-haiku-5-5"
 MAX_STEP = 10
 client = anthropic.Anthropic()
-SYSTEM_QUESTION ="Conduct multiple rounds of literature searches from different perspectives using varied keywords and search strategies. For each paper, provide its title, authors, publication year, link, and a brief explanation of its relevance to the research topic. After searching, using write_file to store the result under output folder and end the program"
+SYSTEM_QUESTION ="Conduct multiple rounds of literature searches from different perspectives using varied keywords and search strategies and keep 10 most relevant articles. For each paper, provide its title, authors, publication year, link, and a brief explanation of its relevance to the research topic. After searching, using write_file to store the result under output folder and end the program"
 
 
 
 def call_model(messages: list[dict]):
     return client.messages.create(
         model = MODEL,
-        max_tokens = 10000,
+        max_tokens = 20000,
         output_config = {"effort": "high"},
         tools = TOOLS,
         messages = messages,
