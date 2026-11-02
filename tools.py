@@ -8,7 +8,7 @@ from pathlib import Path
 BASE_URL = "http://export.arxiv.org/api/"
 ATOM = "{http://www.w3.org/2005/Atom}"
 MIN_INTERVAL = 3.0
-OUTPUT_DIR = Path("output")
+OUTPUT_DIR = (Path(__file__).parent / "output").resolve()
 
 last_request_time = 0.0
 
@@ -91,14 +91,18 @@ def _result_format(papers: list[Paper]) -> str:
 
 def arxiv_search(query: str, max_results: int) -> str:
     papers = _arxiv(query, max_results)
+    if papers == []:
+        return "No papers found"
     return _result_format(papers)
         
 def write_file(filename: str, content: str) -> str:
-    path = OUTPUT_DIR / filename
+    path = (OUTPUT_DIR / filename).resolve()
+    if(not path.is_relative_to(OUTPUT_DIR)):
+        raise ValueError("Filename does not under output folder")
     path.parent.mkdir(parents = True, exist_ok = True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
-    result = f"Write on {str(path)}, content is {content}"
+    result = f"Write on {str(path)}, content contains {len(content)} characters"
     return result
 
 TOOLS_FUNCTION = {"arxiv_search": arxiv_search,
