@@ -3,6 +3,8 @@ import anthropic
 from dotenv import load_dotenv
 from tools import TOOLS, TOOLS_FUNCTION, arxiv_search
 import sys
+from tracer import create_log, start_log
+import time
 
 load_dotenv()
 
@@ -10,14 +12,15 @@ MODEL = "claude-haiku-5-5"
 MAX_STEP = 10
 client = anthropic.Anthropic()
 SYSTEM_QUESTION ="Conduct multiple rounds of literature searches from different perspectives using varied keywords and search strategies and keep 10 most relevant articles. For each paper, provide its title, authors, publication year, link, and a brief explanation of its relevance to the research topic. After searching, using write_file to store the result under output folder and end the program"
-
+OUTPUT_CONFIG = {"effort": "high"}     
+MAX_TOKENS = 20000
 
 
 def call_model(messages: list[dict]):
     return client.messages.create(
         model = MODEL,
-        max_tokens = 20000,
-        output_config = {"effort": "high"},
+        max_tokens = MAX_TOKENS,
+        output_config = OUTPUT_CONFIG,
         tools = TOOLS,
         messages = messages,
         system = SYSTEM_QUESTION
@@ -58,6 +61,8 @@ def run_model():
         raise SystemExit('Usage: python agent.py "<research topic>"')
     question = sys.argv[1]
     messages = [{"role": "user", "content": question}]
+    create_log()
+    start_log(MODEL, out_config = OUTPUT_CONFIG, topic = question, max_step = MAX_STEP)
     for i in range(MAX_STEP):
         response = call_model(messages)
         messages.append({"role": "assistant", "content": response.content})
