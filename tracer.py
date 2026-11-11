@@ -20,6 +20,9 @@ def write_log(model: str, out_config: dict[str, str], step: int, messages: list[
               stop_reason: str, input_tokens: int, output_tokens: int):
     write_event("model_call", step = step, model = model, out_config = out_config, messages = messages, 
                 stop_reason = stop_reason, input_tokens = input_tokens, output_tokens = output_tokens)
+    
+def write_run_end(reason: str, cumulative_tokens: int):
+    write_event("run_end", reason = reason, cumulative_tokens = cumulative_tokens)
 
 def write_event(event: str, **fields):
     time_stamp = datetime.now().isoformat()

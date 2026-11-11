@@ -3,7 +3,7 @@ import anthropic
 from dotenv import load_dotenv
 from tools import TOOLS, TOOLS_FUNCTION, arxiv_search
 import sys
-from tracer import create_log, start_log, write_log
+from tracer import create_log, start_log, write_log, write_run_end
 import time
 
 load_dotenv()
@@ -14,6 +14,9 @@ client = anthropic.Anthropic()
 SYSTEM_QUESTION ="Conduct multiple rounds of literature searches from different perspectives using varied keywords and search strategies and keep 10 most relevant articles. For each paper, provide its title, authors, publication year, link, and a brief explanation of its relevance to the research topic. After searching, using write_file to store the result under output folder and end the program"
 OUTPUT_CONFIG = {"effort": "high"}     
 MAX_TOKENS = 20000
+OUTPUT_TOKENS_SCALE = 5
+INPUT_TOKENS_SCALE = 1
+CUMULATIVE_TOKENS_LIMIT = 300000
 
 
 def call_model(messages: list[dict]):
@@ -71,6 +74,7 @@ def response_format(response):
      return content_log
     
 def run_model():
+    cumulative_tokens = 0
     if len(sys.argv) < 2:
         raise SystemExit('Usage: python agent.py "<research topic>"')
     question = sys.argv[1]
@@ -80,34 +84,45 @@ def run_model():
     for i in range(MAX_STEP):
         response = call_model(messages)
         appending_message = []
-        tool_result = []
         content_log = response_format(response)
         messages.append({"role": "assistant", "content": response.content})
         appending_message.append({"role": "assistant", "content": content_log})
         show(response, f"The {i+1} calling")
+        cumulative_tokens += INPUT_TOKENS_SCALE * response.usage.input_tokens + OUTPUT_TOKENS_SCALE * response.usage.output_tokens
+        if cumulative_tokens >= CUMULATIVE_TOKENS_LIMIT:
+            write_log(MODEL, OUTPUT_CONFIG, step = i + 1, messages = appending_message, 
+                      stop_reason = response.stop_reason, input_tokens = response.usage.input_tokens, output_tokens = response.usage.output_tokens)
+            write_run_end(reason = "budget_exceeded", cumulative_tokens = cumulative_tokens)
+            print("Cumulative tokens over limit")
+            return None
         if response.stop_reason == "tool_use":
             tool_result = using_tool(response.content)
             messages.append({"role": "user", "content": tool_result})
             appending_message.append({"role": "user", "content": tool_result})
         write_log(MODEL, OUTPUT_CONFIG, step = i + 1, messages = appending_message, 
                   stop_reason = response.stop_reason, input_tokens = response.usage.input_tokens, output_tokens = response.usage.output_tokens)
+
         if response.stop_reason == "tool_use":
             continue
-        elif response.stop_reason == "end_turn":
+
+        stop_reason = response.stop_reason
+        write_run_end(reason = stop_reason, cumulative_tokens = cumulative_tokens)
+        if response.stop_reason == "end_turn":
             print("Task successfully done")
             return None
         elif response.stop_reason == "max_tokens":
             print("Reaching maximum token usage")
             return None
         elif response.stop_reason == "refusal":
-            print("Llm denies thie request")
+            print("Llm denies this request")
             raise SystemExit
         else:
             print("Unexpected stop reason")
             return None
     else:
-        print("Reaching max step")
-        return 
+        write_run_end(reason = "Reaching max step", cumulative_tokens = cumulative_tokens)
+        print("max step")
+        return None
 
 if __name__ == "__main__":
     run_model()
