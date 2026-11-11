@@ -3,7 +3,7 @@ import anthropic
 from dotenv import load_dotenv
 from tools import TOOLS, TOOLS_FUNCTION, arxiv_search
 import sys
-from tracer import create_log, start_log
+from tracer import create_log, start_log, write_log
 import time
 
 load_dotenv()
@@ -55,6 +55,20 @@ def run_tool(block):
         "is_error": is_error
     }
 
+def using_tool(content):
+    tool_result = []
+    for block in content:
+        if block.type == "tool_use":
+            tool_result.append(run_tool(block))
+    for result in tool_result:
+        print(f"{result['tool_use_id']} is used, is_error: {result['is_error']}, {len(result["content"])} characters ")
+    return tool_result
+
+def response_format(response):
+     content_log = []
+     for block in response.content:
+          content_log.append(block.model_dump())
+     return content_log
     
 def run_model():
     if len(sys.argv) < 2:
@@ -65,26 +79,30 @@ def run_model():
     start_log(MODEL, out_config = OUTPUT_CONFIG, topic = question, max_step = MAX_STEP)
     for i in range(MAX_STEP):
         response = call_model(messages)
+        appending_message = []
+        tool_result = []
+        content_log = response_format(response)
         messages.append({"role": "assistant", "content": response.content})
+        appending_message.append({"role": "assistant", "content": content_log})
         show(response, f"The {i+1} calling")
         if response.stop_reason == "tool_use":
-            tool_result = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    tool_result.append(run_tool(block))
+            tool_result = using_tool(response.content)
             messages.append({"role": "user", "content": tool_result})
-            for result in tool_result:
-                print(f"{result['tool_use_id']} is used, is_error: {result['is_error']}, {len(result["content"])} characters ")
+            appending_message.append({"role": "user", "content": tool_result})
+        write_log(MODEL, OUTPUT_CONFIG, step = i + 1, messages = appending_message, 
+                  stop_reason = response.stop_reason, input_tokens = response.usage.input_tokens, output_tokens = response.usage.output_tokens)
+        if response.stop_reason == "tool_use":
+            continue
+        elif response.stop_reason == "end_turn":
+            print("Task successfully done")
+            return None
+        elif response.stop_reason == "max_tokens":
+            print("Reaching maximum token usage")
+            return None
+        elif response.stop_reason == "refusal":
+            print("Llm denies thie request")
+            raise SystemExit
         else:
-            if response.stop_reason == "end_turn":
-                print("Task successfully done")
-                return None
-            if response.stop_reason == "max_tokens":
-                print("Reaching maximum token usage")
-                return None
-            if response.stop_reason == "refusal":
-                print("Llm denies thie request")
-                raise SystemExit
             print("Unexpected stop reason")
             return None
     else:
