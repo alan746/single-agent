@@ -3,8 +3,9 @@ import anthropic
 from dotenv import load_dotenv
 from tools import TOOLS, TOOLS_FUNCTION, arxiv_search
 import sys
-from tracer import create_log, start_log, write_log, write_run_end
+from tracer import create_log, start_log, write_log, write_run_end, resume, write_resume
 import time
+import re
 
 load_dotenv()
 
@@ -17,6 +18,7 @@ MAX_TOKENS = 20000
 OUTPUT_TOKENS_SCALE = 5
 INPUT_TOKENS_SCALE = 1
 CUMULATIVE_TOKENS_LIMIT = 300000
+LOG_PATTERN = r"logs/\d{4}-\d{2}-\d{2} \d{6}-\d{6}\.jsonl"
 
 
 def call_model(messages: list[dict]):
@@ -72,16 +74,47 @@ def response_format(response):
      for block in response.content:
           content_log.append(block.model_dump())
      return content_log
-    
-def run_model():
-    cumulative_tokens = 0
+
+def control_mode(argv: list[str]): 
     if len(sys.argv) < 2:
-        raise SystemExit('Usage: python agent.py "<research topic>"')
-    question = sys.argv[1]
-    messages = [{"role": "user", "content": question}]
-    create_log()
-    start_log(MODEL, out_config = OUTPUT_CONFIG, topic = question, max_step = MAX_STEP)
-    for i in range(MAX_STEP):
+        raise SystemExit('Usage: python agent.py "<research topic>" or python agent.py --resume')
+    mode = argv[1]
+    if len(sys.argv) == 3:
+        if(bool(re.fullmatch(LOG_PATTERN, argv[2])) and mode == "--resume"):
+            return set_initial_state(mode, argv[2])
+        elif mode != "--resume":
+            raise ValueError("Second arguement is not --resume")
+        else:
+            raise ValueError("File name does not match any log")
+    return set_initial_state(mode, "")
+
+def set_initial_state(mode: str, filename: str):
+    initial_values = {}
+    if mode == "--resume":
+        initial_values = resume(filename)
+        if not (initial_values.get("done", False)) :
+            write_resume()
+    else:
+        initial_values["cumulative_tokens"] = 0
+        question = sys.argv[1]
+        initial_values["question"] = question
+        initial_values["messages"] = [{"role": "user", "content": question}]
+        initial_values["max_step"] = MAX_STEP
+        create_log()
+        start_log(MODEL, out_config = OUTPUT_CONFIG, topic = question, max_step = MAX_STEP)
+    return initial_values
+
+
+def run_model():
+    initial_values = control_mode(sys.argv)
+    if (initial_values.get("done", False)) :
+        print("Task has successfully done, no need for resuming")
+        return None
+    cumulative_tokens = initial_values.get("cumulative_tokens", 0)
+    messages = initial_values["messages"]
+    cumulative_steps = initial_values.get("cumulative_steps", 0)
+    max_step = initial_values["max_step"]
+    for i in range(cumulative_steps, max_step):
         response = call_model(messages)
         appending_message = []
         content_log = response_format(response)
@@ -90,23 +123,24 @@ def run_model():
         show(response, f"The {i+1} calling")
         cumulative_tokens += INPUT_TOKENS_SCALE * response.usage.input_tokens + OUTPUT_TOKENS_SCALE * response.usage.output_tokens
         if cumulative_tokens >= CUMULATIVE_TOKENS_LIMIT:
-            write_log(MODEL, OUTPUT_CONFIG, step = i + 1, messages = appending_message, 
+            write_log(MODEL, OUTPUT_CONFIG, cumulative_steps= i + 1, cumulative_tokens= cumulative_tokens, messages = appending_message, 
                       stop_reason = response.stop_reason, input_tokens = response.usage.input_tokens, output_tokens = response.usage.output_tokens)
-            write_run_end(reason = "budget_exceeded", cumulative_tokens = cumulative_tokens)
+            write_run_end(reason = "budget_exceeded", cumulative_tokens = cumulative_tokens, cumulative_steps = i + 1)
             print("Cumulative tokens over limit")
             return None
         if response.stop_reason == "tool_use":
             tool_result = using_tool(response.content)
             messages.append({"role": "user", "content": tool_result})
             appending_message.append({"role": "user", "content": tool_result})
-        write_log(MODEL, OUTPUT_CONFIG, step = i + 1, messages = appending_message, 
-                  stop_reason = response.stop_reason, input_tokens = response.usage.input_tokens, output_tokens = response.usage.output_tokens)
+        write_log(MODEL, OUTPUT_CONFIG, cumulative_steps = i + 1, cumulative_tokens= cumulative_tokens, messages = appending_message, 
+                  stop_reason = response.stop_reason, 
+                  input_tokens = response.usage.input_tokens, output_tokens = response.usage.output_tokens)
 
         if response.stop_reason == "tool_use":
             continue
 
         stop_reason = response.stop_reason
-        write_run_end(reason = stop_reason, cumulative_tokens = cumulative_tokens)
+        write_run_end(reason = stop_reason, cumulative_tokens = cumulative_tokens, cumulative_steps = i + 1)
         if response.stop_reason == "end_turn":
             print("Task successfully done")
             return None
@@ -120,7 +154,7 @@ def run_model():
             print("Unexpected stop reason")
             return None
     else:
-        write_run_end(reason = "Reaching max step", cumulative_tokens = cumulative_tokens)
+        write_run_end(reason = "Reaching max step", cumulative_tokens = cumulative_tokens, cumulative_steps= i+1)
         print("max step")
         return None
 
