@@ -112,27 +112,29 @@ def run_model():
         return None
     cumulative_tokens = initial_values.get("cumulative_tokens", 0)
     messages = initial_values["messages"]
-    cumulative_steps = initial_values.get("cumulative_steps", 0)
+    initial_step = initial_values.get("cumulative_steps", 0)
     max_step = initial_values["max_step"]
-    for i in range(cumulative_steps, max_step):
+    cumulative_steps = initial_step
+    for i in range(initial_step, max_step):
+        cumulative_steps = i
         response = call_model(messages)
         appending_message = []
         content_log = response_format(response)
         messages.append({"role": "assistant", "content": response.content})
         appending_message.append({"role": "assistant", "content": content_log})
-        show(response, f"The {i+1} calling")
+        show(response, f"The {cumulative_steps+1} calling")
         cumulative_tokens += INPUT_TOKENS_SCALE * response.usage.input_tokens + OUTPUT_TOKENS_SCALE * response.usage.output_tokens
         if cumulative_tokens >= CUMULATIVE_TOKENS_LIMIT:
-            write_log(MODEL, OUTPUT_CONFIG, cumulative_steps= i + 1, cumulative_tokens= cumulative_tokens, messages = appending_message, 
+            write_log(MODEL, OUTPUT_CONFIG, cumulative_steps= cumulative_steps + 1, cumulative_tokens= cumulative_tokens, messages = appending_message, 
                       stop_reason = response.stop_reason, input_tokens = response.usage.input_tokens, output_tokens = response.usage.output_tokens)
-            write_run_end(reason = "budget_exceeded", cumulative_tokens = cumulative_tokens, cumulative_steps = i + 1)
+            write_run_end(reason = "budget_exceeded", cumulative_tokens = cumulative_tokens, cumulative_steps = cumulative_steps + 1)
             print("Cumulative tokens over limit")
             return None
         if response.stop_reason == "tool_use":
             tool_result = using_tool(response.content)
             messages.append({"role": "user", "content": tool_result})
             appending_message.append({"role": "user", "content": tool_result})
-        write_log(MODEL, OUTPUT_CONFIG, cumulative_steps = i + 1, cumulative_tokens= cumulative_tokens, messages = appending_message, 
+        write_log(MODEL, OUTPUT_CONFIG, cumulative_steps = cumulative_steps + 1, cumulative_tokens= cumulative_tokens, messages = appending_message, 
                   stop_reason = response.stop_reason, 
                   input_tokens = response.usage.input_tokens, output_tokens = response.usage.output_tokens)
 
@@ -140,7 +142,7 @@ def run_model():
             continue
 
         stop_reason = response.stop_reason
-        write_run_end(reason = stop_reason, cumulative_tokens = cumulative_tokens, cumulative_steps = i + 1)
+        write_run_end(reason = stop_reason, cumulative_tokens = cumulative_tokens, cumulative_steps = cumulative_steps + 1)
         if response.stop_reason == "end_turn":
             print("Task successfully done")
             return None
@@ -154,7 +156,7 @@ def run_model():
             print("Unexpected stop reason")
             return None
     else:
-        write_run_end(reason = "Reaching max step", cumulative_tokens = cumulative_tokens, cumulative_steps= i+1)
+        write_run_end(reason = "Reaching max step", cumulative_tokens = cumulative_tokens, cumulative_steps= cumulative_steps+1)
         print("max step")
         return None
 
